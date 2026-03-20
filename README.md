@@ -21,6 +21,7 @@ python3 -m ffinspector /path/to/show --config ffinspector.example.yaml
 python3 -m ffinspector /path/to/show --format terse
 python3 -m ffinspector /path/to/show --format brief
 python3 -m ffinspector /path/to/show --format detail
+python3 -m ffinspector /path/to/show --format table
 python3 -m ffinspector /path/to/show --format json
 ```
 
@@ -29,6 +30,7 @@ python3 -m ffinspector /path/to/show --format json
 - `terse` is the default terminal view and aims for a 3-4 line per-file summary.
 - `brief` keeps the same sections but compresses each block into a single monospace-friendly line.
 - `detail` is the original expanded block view for full per-track details.
+- `table` renders one Rich table row per file so you can compare episodes at a glance.
 - `json` emits structured machine-readable output.
 - `brief` and `terse` cap audio/subtitle previews to two key items, then append an `X more...` tail when extra tracks exist.
 - Displayed media paths are rendered relative to the target path you inspect.

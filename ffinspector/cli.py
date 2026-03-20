@@ -21,7 +21,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("-c", "--config", help="Path to YAML config file.")
     parser.add_argument(
         "--format",
-        choices=["terse", "brief", "detail", "json", "terminal"],
+        choices=["terse", "brief", "detail", "table", "json", "terminal"],
         help="Report format override. 'terminal' is accepted as an alias for 'detail'.",
     )
     parser.add_argument(

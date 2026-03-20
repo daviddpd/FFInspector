@@ -164,6 +164,53 @@ class CliTests(unittest.TestCase):
         self.assertNotIn(temp_dir, rendered)
         self.assertIn('"display_title": "Movie"', rendered)
 
+    def test_table_output_renders_rich_table_headers(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            media_dir = Path(temp_dir) / "Season 01"
+            media_dir.mkdir()
+            media_path = media_dir / "Movie.mkv"
+            media_path.write_text("", encoding="utf-8")
+            stub_media = MediaInfo(
+                path=media_path,
+                duration_seconds=3600,
+                video_tracks=[
+                    VideoTrack(
+                        index=0,
+                        codec="hevc",
+                        codec_display="H.265",
+                        width=3840,
+                        height=2160,
+                        resolution_label="4K",
+                    )
+                ],
+                audio_tracks=[AudioTrack(index=1, language_code="eng", language_name="English", is_default=True)],
+                subtitle_tracks=[SubtitleTrack(index=2, language_code="eng", language_name="English", codec="subrip")],
+            )
+
+            buffer = io.StringIO()
+            with patch("ffinspector.cli.FFProbeRunner.inspect", return_value=stub_media):
+                with redirect_stdout(buffer):
+                    exit_code = main(
+                        [
+                            temp_dir,
+                            "--format",
+                            "table",
+                            "--require-audio-language",
+                            "eng",
+                            "--require-subtitle-language",
+                            "eng",
+                        ]
+                    )
+
+        rendered = buffer.getvalue()
+        self.assertEqual(exit_code, 0)
+        self.assertIn("Title", rendered)
+        self.assertIn("Video", rendered)
+        self.assertIn("Audio", rendered)
+        self.assertIn("Subs", rendered)
+        self.assertIn("Req", rendered)
+        self.assertIn("Season 01/Movie.mkv", rendered)
+
 
 if __name__ == "__main__":
     unittest.main()

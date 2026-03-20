@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import io
 import json
+import shutil
 from dataclasses import asdict
 
+from rich import box
 from rich.console import Console
+from rich.table import Table
 from rich.text import Text
 
 from .config import AppConfig
@@ -27,9 +30,9 @@ class BaseTerminalRenderer:
         self.use_color = use_color
         self.use_unicode = use_unicode
 
-    def render(self, results: list[InspectionResult], config: AppConfig) -> str:
-        buffer = io.StringIO()
-        console = Console(
+    def _build_console(self, buffer: io.StringIO) -> Console:
+        width = shutil.get_terminal_size((140, 40)).columns
+        return Console(
             file=buffer,
             force_terminal=self.use_color,
             no_color=not self.use_color,
@@ -38,7 +41,12 @@ class BaseTerminalRenderer:
             highlight=False,
             markup=False,
             soft_wrap=True,
+            width=width,
         )
+
+    def render(self, results: list[InspectionResult], config: AppConfig) -> str:
+        buffer = io.StringIO()
+        console = self._build_console(buffer)
 
         for index, result in enumerate(results):
             if index:
@@ -237,9 +245,25 @@ class BaseTerminalRenderer:
         return track.resolution_label or "unknown"
 
     def _limited_track_parts(self, tracks, check, compact: bool, formatter) -> list[RenderablePart]:
+        return self._track_preview_parts(
+            tracks,
+            check,
+            compact=compact,
+            formatter=formatter,
+            include_requirement_marker=True,
+        )
+
+    def _track_preview_parts(
+        self,
+        tracks,
+        check,
+        compact: bool,
+        formatter,
+        include_requirement_marker: bool,
+    ) -> list[RenderablePart]:
         shown_tracks = self._select_tracks_for_compact_output(tracks, check)
         parts: list[RenderablePart] = [formatter(track, compact=compact) for track in shown_tracks]
-        if check.missing:
+        if include_requirement_marker and check.missing:
             parts.append(self._styled(f"req {'/'.join(check.missing)}", "bold red"))
         if tracks:
             remaining = max(0, len(tracks) - len(shown_tracks))
@@ -330,6 +354,10 @@ class BaseTerminalRenderer:
         if not tokens:
             return None
         return self._section_line("!", "red", self._compact_join(tokens))
+
+    def _issues_parts(self, issues: list[InspectionIssue], compact: bool) -> list[RenderablePart]:
+        tokens = [self._compact_issue(issue, compact=compact) for issue in issues]
+        return [token for token in tokens if token is not None and self._to_text(token).plain]
 
     def _compact_issue(self, issue: InspectionIssue, compact: bool) -> RenderablePart:
         if issue.code in {"missing_audio_languages", "missing_subtitle_languages"}:
@@ -528,6 +556,118 @@ class TerseRenderer(BaseTerminalRenderer):
         return lines
 
 
+class TableRenderer(BaseTerminalRenderer):
+    def render(self, results: list[InspectionResult], config: AppConfig) -> str:
+        buffer = io.StringIO()
+        console = self._build_console(buffer)
+        table = Table(
+            box=box.SIMPLE_HEAVY if self.use_unicode else box.ASCII,
+            header_style="bold cyan",
+            show_lines=False,
+            expand=False,
+            pad_edge=False,
+        )
+
+        table.add_column("St", no_wrap=True, justify="center")
+        table.add_column("Title", no_wrap=False)
+        if "meta" in config.report.sections:
+            table.add_column("Date", no_wrap=True)
+        if "video" in config.report.sections:
+            table.add_column("Video", no_wrap=False)
+        if "audio" in config.report.sections:
+            table.add_column("Audio", no_wrap=False)
+        if "subtitles" in config.report.sections:
+            table.add_column("Subs", no_wrap=False)
+        if result_has_requirements(results):
+            table.add_column("Req", no_wrap=False)
+        if result_has_non_requirement_issues(results):
+            table.add_column("Issues", no_wrap=False)
+        if config.report.show_path:
+            table.add_column("Path", no_wrap=False)
+
+        for result in results:
+            row: list[RenderablePart] = [self._styled(self._status_icon(result.status), self._status_color(result.status))]
+            row.append(self._styled(self._result_title(result), f"bold {self._title_color(result.status)}"))
+
+            if "meta" in config.report.sections:
+                row.append(self._table_date_cell(result))
+            if "video" in config.report.sections:
+                row.append(self._compact_join(self._video_parts(result, compact=True)))
+            if "audio" in config.report.sections:
+                row.append(
+                    self._compact_join(
+                        self._track_preview_parts(
+                            result.media.audio_tracks,
+                            result.audio_languages,
+                            compact=True,
+                            formatter=self._audio_track_summary,
+                            include_requirement_marker=False,
+                        )
+                    )
+                )
+            if "subtitles" in config.report.sections:
+                row.append(
+                    self._compact_join(
+                        self._track_preview_parts(
+                            result.media.subtitle_tracks,
+                            result.subtitle_languages,
+                            compact=True,
+                            formatter=self._subtitle_track_summary,
+                            include_requirement_marker=False,
+                        )
+                    )
+                )
+            if result_has_requirements(results):
+                row.append(self._table_requirements_cell(result))
+            if result_has_non_requirement_issues(results):
+                row.append(self._table_issues_cell(result))
+            if config.report.show_path:
+                row.append(result.display_path)
+
+            table.add_row(*(self._to_text(cell) for cell in row))
+
+        console.print(table)
+        if config.report.show_summary:
+            console.print()
+            for line in self._render_summary(results):
+                console.print(line)
+        return buffer.getvalue().rstrip("\n")
+
+    def _table_date_cell(self, result: InspectionResult) -> str:
+        if result.nfo and (result.nfo.aired or result.nfo.premiered):
+            return result.nfo.aired or result.nfo.premiered or "-"
+        return "-"
+
+    def _table_requirements_cell(self, result: InspectionResult) -> Text:
+        parts: list[RenderablePart] = []
+        audio_summary = self._table_requirement_summary("A", result.audio_languages)
+        if audio_summary:
+            parts.append(audio_summary)
+        subtitle_summary = self._table_requirement_summary("S", result.subtitle_languages)
+        if subtitle_summary:
+            parts.append(subtitle_summary)
+        if not parts:
+            return Text("-")
+        return self._compact_join(parts)
+
+    def _table_requirement_summary(self, label: str, check) -> RenderablePart:
+        if not check.required:
+            return None
+        needed = "/".join(check.required)
+        if not check.missing:
+            symbol = "✓" if self.use_unicode else "ok"
+            return self._styled(f"{label}:{needed} {symbol}", "green")
+        missing = "/".join(check.missing)
+        symbol = "✖" if self.use_unicode else "x"
+        return self._styled(f"{label}:{needed} {symbol} {missing}", "bold red")
+
+    def _table_issues_cell(self, result: InspectionResult) -> Text:
+        parts = self._issues_parts(result.issues, compact=True)
+        if not parts:
+            return Text("-")
+        return self._compact_join(parts)
+
+
 class JsonRenderer:
     def render(self, results: list[InspectionResult], config: AppConfig) -> str:
         del config
@@ -546,8 +686,21 @@ def get_renderer(name: str, use_color: bool, use_unicode: bool):
     normalized = {"terminal": "detail"}.get(name, name)
     if normalized == "json":
         return JsonRenderer()
+    if normalized == "table":
+        return TableRenderer(use_color=use_color, use_unicode=use_unicode)
     if normalized == "detail":
         return DetailRenderer(use_color=use_color, use_unicode=use_unicode)
     if normalized == "brief":
         return BriefRenderer(use_color=use_color, use_unicode=use_unicode)
     return TerseRenderer(use_color=use_color, use_unicode=use_unicode)
+
+
+def result_has_requirements(results: list[InspectionResult]) -> bool:
+    return any(result.audio_languages.required or result.subtitle_languages.required for result in results)
+
+
+def result_has_non_requirement_issues(results: list[InspectionResult]) -> bool:
+    return any(
+        any(issue.code not in {"missing_audio_languages", "missing_subtitle_languages"} for issue in result.issues)
+        for result in results
+    )

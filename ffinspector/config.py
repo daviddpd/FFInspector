@@ -187,7 +187,7 @@ def _normalize_report_format(value: Any) -> str:
     normalized = str(value).strip().lower()
     if normalized == "terminal":
         return "detail"
-    if normalized in {"detail", "brief", "terse", "json"}:
+    if normalized in {"detail", "brief", "terse", "table", "json"}:
         return normalized
     return "terse"
 
