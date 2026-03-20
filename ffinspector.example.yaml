@@ -1,0 +1,31 @@
+ffprobe_path: ffprobe
+
+scan:
+  recursive: true
+  follow_symlinks: false
+  extensions:
+    - .mkv
+    - .mp4
+    - .m4v
+
+report:
+  format: terse
+  color: true
+  unicode: true
+  show_path: true
+  show_summary: true
+  sections:
+    - meta
+    - video
+    - audio
+    - subtitles
+
+requirements:
+  audio_languages:
+    - eng
+  subtitle_languages:
+    - eng
+
+comparison:
+  duration_tolerance_seconds: 60
+  aspect_ratio_tolerance: 0.03
