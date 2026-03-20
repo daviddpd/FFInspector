@@ -576,11 +576,12 @@ class TableRenderer(BaseTerminalRenderer):
             show_lines=False,
             expand=False,
             pad_edge=False,
+            padding=(0, 0),
         )
 
         table.add_column("St", no_wrap=True, justify="center")
         if include_meta:
-            table.add_column("Title", no_wrap=False)
+            table.add_column("Title", no_wrap=True)
             table.add_column("Date", no_wrap=True)
         if include_video:
             table.add_column("Dur", no_wrap=True)
@@ -609,42 +610,33 @@ class TableRenderer(BaseTerminalRenderer):
             table.add_column("Issues", no_wrap=False)
 
         for index, result in enumerate(results):
-            first_row: list[RenderablePart] = [
+            row: list[RenderablePart] = [
                 self._styled(self._status_icon(result.status), self._status_color(result.status))
             ]
-            second_row: list[RenderablePart] = [Text("")]
 
             if include_meta:
-                first_row.append(self._styled(self._result_title(result), f"bold {self._title_color(result.status)}"))
-                first_row.append(self._table_date_cell(result))
-                second_row.extend(self._blank_cells(2))
+                row.append(self._table_title_cell(result))
+                row.append(self._table_date_cell(result))
 
             if include_video:
-                first_row.extend(self._table_video_cells(result))
-                second_row.extend(self._blank_cells(6))
+                row.extend(self._table_video_cells(result))
 
             if include_audio:
-                first_row.extend(self._blank_cells(5))
-                second_row.extend(self._table_audio_cells(result))
+                row.extend(self._table_audio_cells(result))
 
             if include_subtitles:
-                first_row.extend(self._blank_cells(5))
-                second_row.extend(self._table_subtitle_cells(result))
+                row.extend(self._table_subtitle_cells(result))
 
             if include_audio_requirements:
-                first_row.append(Text(""))
-                second_row.append(self._table_requirement_cell(result.audio_languages))
+                row.append(self._table_requirement_cell(result.audio_languages))
 
             if include_subtitle_requirements:
-                first_row.append(Text(""))
-                second_row.append(self._table_requirement_cell(result.subtitle_languages))
+                row.append(self._table_requirement_cell(result.subtitle_languages))
 
             if include_issues:
-                first_row.append(Text(""))
-                second_row.append(self._table_issues_cell(result))
+                row.append(self._table_issues_cell(result))
 
-            table.add_row(*(self._to_text(cell) for cell in first_row))
-            table.add_row(*(self._to_text(cell) for cell in second_row))
+            table.add_row(*(self._to_text(cell) for cell in row))
             if index < len(results) - 1:
                 table.add_section()
 
@@ -655,13 +647,16 @@ class TableRenderer(BaseTerminalRenderer):
                 console.print(line)
         return buffer.getvalue().rstrip("\n")
 
-    def _blank_cells(self, count: int) -> list[Text]:
-        return [Text("") for _ in range(count)]
-
     def _table_date_cell(self, result: InspectionResult) -> str:
         if result.nfo and (result.nfo.aired or result.nfo.premiered):
             return result.nfo.aired or result.nfo.premiered or "-"
         return "-"
+
+    def _table_title_cell(self, result: InspectionResult) -> Text:
+        title = self._result_title(result)
+        if len(title) > 32:
+            title = f"{title[:29]}..."
+        return self._styled(title, f"bold {self._title_color(result.status)}")
 
     def _table_video_cells(self, result: InspectionResult) -> list[RenderablePart]:
         if not result.media.video_tracks:
@@ -722,6 +717,8 @@ class TableRenderer(BaseTerminalRenderer):
             return self._styled(f"{needed} {symbol}", "green")
         missing = "/".join(check.missing)
         symbol = "✖" if self.use_unicode else "x"
+        if [item.casefold() for item in check.missing] == [item.casefold() for item in check.required]:
+            return self._styled(f"{needed} {symbol}", "bold red")
         return self._styled(f"{needed} {symbol} {missing}", "bold red")
 
     def _table_issues_cell(self, result: InspectionResult) -> Text:

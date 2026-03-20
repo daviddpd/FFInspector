@@ -213,6 +213,53 @@ class CliTests(unittest.TestCase):
         self.assertIn("Req S", rendered)
         self.assertNotIn("Season 01/Movie.mkv", rendered)
 
+    def test_table_output_truncates_title_and_simplifies_missing_requirement(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            media_dir = Path(temp_dir) / "Season 01"
+            media_dir.mkdir()
+            long_stem = "A Very Long Episode Title That Goes Beyond Thirty Two Characters"
+            media_path = media_dir / f"{long_stem}.mkv"
+            media_path.write_text("", encoding="utf-8")
+            stub_media = MediaInfo(
+                path=media_path,
+                duration_seconds=3600,
+                video_tracks=[
+                    VideoTrack(
+                        index=0,
+                        codec="hevc",
+                        codec_display="H.265",
+                        width=3840,
+                        height=2160,
+                        resolution_label="4K",
+                    )
+                ],
+                audio_tracks=[AudioTrack(index=1, language_code="eng", language_name="English", is_default=True)],
+                subtitle_tracks=[],
+            )
+
+            buffer = io.StringIO()
+            with patch("ffinspector.cli.FFProbeRunner.inspect", return_value=stub_media):
+                with redirect_stdout(buffer):
+                    exit_code = main(
+                        [
+                            temp_dir,
+                            "--format",
+                            "table",
+                            "--require-audio-language",
+                            "eng",
+                            "--require-subtitle-language",
+                            "eng",
+                        ]
+                    )
+
+        rendered = buffer.getvalue()
+        self.assertEqual(exit_code, 0)
+        self.assertIn("A Very Long Episode Title Tha...", rendered)
+        self.assertNotIn(long_stem, rendered)
+        self.assertIn("English ✓", rendered)
+        self.assertIn("English ✖", rendered)
+        self.assertNotIn("English ✖ English", rendered)
+
 
 if __name__ == "__main__":
     unittest.main()
