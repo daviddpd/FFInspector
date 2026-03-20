@@ -49,6 +49,7 @@ class CliTests(unittest.TestCase):
         self.assertIn("A", rendered)
         self.assertIn("S", rendered)
         self.assertNotIn("Meta", rendered)
+        self.assertNotIn("audio req", rendered)
 
     def test_brief_output_uses_single_line_sections(self) -> None:
         with TemporaryDirectory() as temp_dir:
@@ -95,10 +96,48 @@ class CliTests(unittest.TestCase):
         self.assertTrue(rendered_lines[1].startswith("V"))
         self.assertTrue(rendered_lines[2].startswith("A"))
         self.assertTrue(rendered_lines[3].startswith("S"))
+        self.assertTrue(any(line.startswith("!") for line in rendered_lines))
         self.assertIn("(1 more...)", rendered)
         self.assertIn("req English", rendered)
+        self.assertIn("audio req English", rendered)
+        self.assertIn("subs req English", rendered)
         self.assertIn("Season 01/Movie.mkv", rendered)
         self.assertNotIn(temp_dir, rendered)
+
+    def test_terse_output_adds_requirement_summary_line(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            media_dir = Path(temp_dir) / "Season 01"
+            media_dir.mkdir()
+            media_path = media_dir / "Movie.mkv"
+            media_path.write_text("", encoding="utf-8")
+            stub_media = MediaInfo(
+                path=media_path,
+                duration_seconds=3600,
+                video_tracks=[VideoTrack(index=0, codec="hevc", codec_display="H.265", width=3840, height=2160)],
+                audio_tracks=[AudioTrack(index=1, language_code="eng", language_name="English", is_default=True)],
+                subtitle_tracks=[SubtitleTrack(index=2, language_code="jpn", language_name="Japanese", codec="subrip")],
+            )
+
+            buffer = io.StringIO()
+            with patch("ffinspector.cli.FFProbeRunner.inspect", return_value=stub_media):
+                with redirect_stdout(buffer):
+                    exit_code = main(
+                        [
+                            temp_dir,
+                            "--require-audio-language",
+                            "eng",
+                            "--require-subtitle-language",
+                            "eng",
+                        ]
+                    )
+
+        rendered = buffer.getvalue()
+        rendered_lines = [line for line in rendered.splitlines() if line and not line.startswith("Summary") and not line.startswith("  ")]
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(any(line.startswith("!") for line in rendered_lines))
+        self.assertIn("audio req English", rendered)
+        self.assertIn("subs req English", rendered)
+        self.assertIn("missing English", rendered)
 
     def test_json_output_renders_with_mocked_probe(self) -> None:
         with TemporaryDirectory() as temp_dir:

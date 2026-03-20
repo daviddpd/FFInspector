@@ -190,7 +190,7 @@ class BaseTerminalRenderer:
         shown_tracks = self._select_tracks_for_compact_output(tracks, check)
         parts = [formatter(track, compact=compact) for track in shown_tracks]
         if check.missing:
-            parts.append(self._colorize(f"req {'/'.join(check.missing)}", "yellow"))
+            parts.append(self._colorize(f"req {'/'.join(check.missing)}", "red"))
         if tracks:
             remaining = max(0, len(tracks) - len(shown_tracks))
             if remaining:
@@ -198,6 +198,18 @@ class BaseTerminalRenderer:
         if not parts:
             return ["none"]
         return parts
+
+    def _requirements_line(self, result: InspectionResult) -> str | None:
+        parts = []
+        audio_summary = self._requirement_summary("audio", result.audio_languages)
+        if audio_summary:
+            parts.append(audio_summary)
+        subtitle_summary = self._requirement_summary("subs", result.subtitle_languages)
+        if subtitle_summary:
+            parts.append(subtitle_summary)
+        if not parts:
+            return None
+        return self._section_line("!", "red", self._compact_join(parts))
 
     def _select_tracks_for_compact_output(self, tracks, check) -> list:
         if not tracks:
@@ -262,6 +274,17 @@ class BaseTerminalRenderer:
         missing = "/".join(check.missing)
         symbol = "✖" if self.use_unicode else "x"
         return self._colorize(f"req {needed} {symbol} {missing}", "yellow")
+
+    def _requirement_summary(self, label: str, check) -> str | None:
+        if not check.required:
+            return None
+        needed = "/".join(check.required)
+        if not check.missing:
+            symbol = "✓" if self.use_unicode else "ok"
+            return self._colorize(f"{label} req {needed} {symbol}", "green")
+        missing = "/".join(check.missing)
+        symbol = "✖" if self.use_unicode else "x"
+        return self._colorize(f"{label} req {needed} {symbol} missing {missing}", "red")
 
     def _issue_line(self, issues: list[InspectionIssue], compact: bool) -> str | None:
         tokens = [self._compact_issue(issue, compact=compact) for issue in issues]
@@ -426,6 +449,9 @@ class BriefRenderer(BaseTerminalRenderer):
             lines.append(
                 self._section_line("S", "yellow", self._compact_join(self._subtitle_parts(result, compact=False)))
             )
+        requirements_line = self._requirements_line(result)
+        if requirements_line:
+            lines.append(requirements_line)
         issue_line = self._issue_line(result.issues, compact=False)
         if issue_line:
             lines.append(issue_line)
@@ -463,6 +489,9 @@ class TerseRenderer(BaseTerminalRenderer):
             issue_line = self._issue_line(result.issues, compact=True)
             if issue_line:
                 lines.append(issue_line)
+        requirements_line = self._requirements_line(result)
+        if requirements_line:
+            lines.append(requirements_line)
         return lines
 
 
