@@ -8,6 +8,37 @@ from ffinspector.renderers import TerseRenderer
 
 
 class RendererTests(unittest.TestCase):
+    def test_ok_terse_title_uses_yellow_not_green(self) -> None:
+        result = InspectionResult(
+            path=Path("/tmp/media/Show/Episode.mkv"),
+            display_path="Show/Episode.mkv",
+            display_title="Episode",
+            media=MediaInfo(
+                path=Path("/tmp/media/Show/Episode.mkv"),
+                duration_seconds=3600,
+                video_tracks=[
+                    VideoTrack(
+                        index=0,
+                        codec="hevc",
+                        codec_display="H.265",
+                        width=3840,
+                        height=2160,
+                        resolution_label="4K",
+                    )
+                ],
+            ),
+            nfo=None,
+            audio_languages=RequirementCheck(),
+            subtitle_languages=RequirementCheck(),
+        )
+        config = AppConfig()
+        renderer = TerseRenderer(use_color=True, use_unicode=True)
+
+        rendered = renderer.render([result], config)
+
+        self.assertIn("\x1b[1;33mEpisode\x1b[0m", rendered)
+        self.assertNotIn("\x1b[1;32mEpisode\x1b[0m", rendered)
+
     def test_rich_renderer_emits_ansi_and_preserves_plain_text_content(self) -> None:
         result = InspectionResult(
             path=Path("/tmp/media/Show/Episode.mkv"),

@@ -79,6 +79,11 @@ class BaseTerminalRenderer:
     def _status_color(self, status: str) -> str:
         return {"ok": "green", "warning": "yellow", "error": "red"}[status]
 
+    def _title_color(self, status: str) -> str:
+        if status == "error":
+            return "red"
+        return "yellow"
+
     def _bullet(self) -> str:
         return " · " if self.use_unicode else " - "
 
@@ -127,7 +132,7 @@ class BaseTerminalRenderer:
     def _meta_parts(self, result: InspectionResult, show_path: bool) -> list[RenderablePart]:
         nfo = result.nfo
         parts: list[RenderablePart] = [
-            self._styled(self._base_title(result), f"bold {self._status_color(result.status)}")
+            self._styled(self._base_title(result), f"bold {self._title_color(result.status)}")
         ]
         if nfo and nfo.rating:
             parts.append(nfo.rating)
@@ -481,7 +486,7 @@ class TerseRenderer(BaseTerminalRenderer):
         lines: list[Text] = []
         header_parts: list[RenderablePart] = [
             self._status_icon(result.status),
-            self._styled(self._result_title(result), f"bold {self._status_color(result.status)}"),
+            self._styled(self._result_title(result), f"bold {self._title_color(result.status)}"),
         ]
         nfo = result.nfo
         if "meta" in config.report.sections:
