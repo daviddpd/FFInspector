@@ -30,8 +30,8 @@ class BaseTerminalRenderer:
         self.use_color = use_color
         self.use_unicode = use_unicode
 
-    def _build_console(self, buffer: io.StringIO) -> Console:
-        width = shutil.get_terminal_size((140, 40)).columns
+    def _build_console(self, buffer: io.StringIO, min_width: int = 140) -> Console:
+        width = max(shutil.get_terminal_size((min_width, 40)).columns, min_width)
         return Console(
             file=buffer,
             force_terminal=self.use_color,
@@ -559,7 +559,17 @@ class TerseRenderer(BaseTerminalRenderer):
 class TableRenderer(BaseTerminalRenderer):
     def render(self, results: list[InspectionResult], config: AppConfig) -> str:
         buffer = io.StringIO()
-        console = self._build_console(buffer)
+        console = self._build_console(buffer, min_width=220)
+        include_meta = "meta" in config.report.sections
+        include_video = "video" in config.report.sections
+        include_audio = "audio" in config.report.sections
+        include_subtitles = "subtitles" in config.report.sections
+        include_audio_requirements = include_audio and any(result.audio_languages.required for result in results)
+        include_subtitle_requirements = include_subtitles and any(
+            result.subtitle_languages.required for result in results
+        )
+        include_issues = result_has_non_requirement_issues(results)
+
         table = Table(
             box=box.SIMPLE_HEAVY if self.use_unicode else box.ASCII,
             header_style="bold cyan",
@@ -569,62 +579,74 @@ class TableRenderer(BaseTerminalRenderer):
         )
 
         table.add_column("St", no_wrap=True, justify="center")
-        table.add_column("Title", no_wrap=False)
-        if "meta" in config.report.sections:
+        if include_meta:
+            table.add_column("Title", no_wrap=False)
             table.add_column("Date", no_wrap=True)
-        if "video" in config.report.sections:
-            table.add_column("Video", no_wrap=False)
-        if "audio" in config.report.sections:
-            table.add_column("Audio", no_wrap=False)
-        if "subtitles" in config.report.sections:
-            table.add_column("Subs", no_wrap=False)
-        if result_has_requirements(results):
-            table.add_column("Req", no_wrap=False)
-        if result_has_non_requirement_issues(results):
+        if include_video:
+            table.add_column("Dur", no_wrap=True)
+            table.add_column("VCodec", no_wrap=True)
+            table.add_column("Res", no_wrap=True)
+            table.add_column("Exact", no_wrap=True)
+            table.add_column("DR", no_wrap=True)
+            table.add_column("FPS", no_wrap=True)
+        if include_audio:
+            table.add_column("A1", no_wrap=True)
+            table.add_column("A1 Detail", no_wrap=True)
+            table.add_column("A2", no_wrap=True)
+            table.add_column("A2 Detail", no_wrap=True)
+            table.add_column("A+", no_wrap=True, justify="right")
+        if include_subtitles:
+            table.add_column("S1", no_wrap=True)
+            table.add_column("S1 Detail", no_wrap=True)
+            table.add_column("S2", no_wrap=True)
+            table.add_column("S2 Detail", no_wrap=True)
+            table.add_column("S+", no_wrap=True, justify="right")
+        if include_audio_requirements:
+            table.add_column("Req A", no_wrap=False)
+        if include_subtitle_requirements:
+            table.add_column("Req S", no_wrap=False)
+        if include_issues:
             table.add_column("Issues", no_wrap=False)
-        if config.report.show_path:
-            table.add_column("Path", no_wrap=False)
 
-        for result in results:
-            row: list[RenderablePart] = [self._styled(self._status_icon(result.status), self._status_color(result.status))]
-            row.append(self._styled(self._result_title(result), f"bold {self._title_color(result.status)}"))
+        for index, result in enumerate(results):
+            first_row: list[RenderablePart] = [
+                self._styled(self._status_icon(result.status), self._status_color(result.status))
+            ]
+            second_row: list[RenderablePart] = [Text("")]
 
-            if "meta" in config.report.sections:
-                row.append(self._table_date_cell(result))
-            if "video" in config.report.sections:
-                row.append(self._compact_join(self._video_parts(result, compact=True)))
-            if "audio" in config.report.sections:
-                row.append(
-                    self._compact_join(
-                        self._track_preview_parts(
-                            result.media.audio_tracks,
-                            result.audio_languages,
-                            compact=True,
-                            formatter=self._audio_track_summary,
-                            include_requirement_marker=False,
-                        )
-                    )
-                )
-            if "subtitles" in config.report.sections:
-                row.append(
-                    self._compact_join(
-                        self._track_preview_parts(
-                            result.media.subtitle_tracks,
-                            result.subtitle_languages,
-                            compact=True,
-                            formatter=self._subtitle_track_summary,
-                            include_requirement_marker=False,
-                        )
-                    )
-                )
-            if result_has_requirements(results):
-                row.append(self._table_requirements_cell(result))
-            if result_has_non_requirement_issues(results):
-                row.append(self._table_issues_cell(result))
-            if config.report.show_path:
-                row.append(result.display_path)
+            if include_meta:
+                first_row.append(self._styled(self._result_title(result), f"bold {self._title_color(result.status)}"))
+                first_row.append(self._table_date_cell(result))
+                second_row.extend(self._blank_cells(2))
 
-            table.add_row(*(self._to_text(cell) for cell in row))
+            if include_video:
+                first_row.extend(self._table_video_cells(result))
+                second_row.extend(self._blank_cells(6))
+
+            if include_audio:
+                first_row.extend(self._blank_cells(5))
+                second_row.extend(self._table_audio_cells(result))
+
+            if include_subtitles:
+                first_row.extend(self._blank_cells(5))
+                second_row.extend(self._table_subtitle_cells(result))
+
+            if include_audio_requirements:
+                first_row.append(Text(""))
+                second_row.append(self._table_requirement_cell(result.audio_languages))
+
+            if include_subtitle_requirements:
+                first_row.append(Text(""))
+                second_row.append(self._table_requirement_cell(result.subtitle_languages))
+
+            if include_issues:
+                first_row.append(Text(""))
+                second_row.append(self._table_issues_cell(result))
+
+            table.add_row(*(self._to_text(cell) for cell in first_row))
+            table.add_row(*(self._to_text(cell) for cell in second_row))
+            if index < len(results) - 1:
+                table.add_section()
 
         console.print(table)
         if config.report.show_summary:
@@ -633,33 +655,74 @@ class TableRenderer(BaseTerminalRenderer):
                 console.print(line)
         return buffer.getvalue().rstrip("\n")
 
+    def _blank_cells(self, count: int) -> list[Text]:
+        return [Text("") for _ in range(count)]
+
     def _table_date_cell(self, result: InspectionResult) -> str:
         if result.nfo and (result.nfo.aired or result.nfo.premiered):
             return result.nfo.aired or result.nfo.premiered or "-"
         return "-"
 
-    def _table_requirements_cell(self, result: InspectionResult) -> Text:
-        parts: list[RenderablePart] = []
-        audio_summary = self._table_requirement_summary("A", result.audio_languages)
-        if audio_summary:
-            parts.append(audio_summary)
-        subtitle_summary = self._table_requirement_summary("S", result.subtitle_languages)
-        if subtitle_summary:
-            parts.append(subtitle_summary)
-        if not parts:
-            return Text("-")
-        return self._compact_join(parts)
+    def _table_video_cells(self, result: InspectionResult) -> list[RenderablePart]:
+        if not result.media.video_tracks:
+            return ["-", "-", "-", "-", "-", "-"]
+        track = result.media.video_tracks[0]
+        return [
+            format_duration_minutes(result.media.duration_seconds),
+            track.codec_display or track.codec or "-",
+            track.resolution_label or "-",
+            self._exact_resolution(track) if track.width and track.height else "-",
+            track.dynamic_range or "-",
+            format_fps(track.fps) if track.fps is not None else "-",
+        ]
 
-    def _table_requirement_summary(self, label: str, check) -> RenderablePart:
+    def _table_audio_cells(self, result: InspectionResult) -> list[RenderablePart]:
+        selected = self._select_tracks_for_compact_output(result.media.audio_tracks, result.audio_languages)
+        remaining = max(0, len(result.media.audio_tracks) - len(selected))
+        return self._track_slot_cells(selected, remaining, is_audio=True)
+
+    def _table_subtitle_cells(self, result: InspectionResult) -> list[RenderablePart]:
+        selected = self._select_tracks_for_compact_output(result.media.subtitle_tracks, result.subtitle_languages)
+        remaining = max(0, len(result.media.subtitle_tracks) - len(selected))
+        return self._track_slot_cells(selected, remaining, is_audio=False)
+
+    def _track_slot_cells(self, tracks: list, remaining: int, is_audio: bool) -> list[RenderablePart]:
+        cells: list[RenderablePart] = []
+        for index in range(2):
+            if index < len(tracks):
+                track = tracks[index]
+                cells.append(self._table_track_label(track))
+                cells.append(self._table_track_detail(track, is_audio=is_audio))
+            else:
+                cells.extend(["-", "-"])
+        cells.append(f"+{remaining}" if remaining else "-")
+        return cells
+
+    def _table_track_label(self, track) -> str:
+        language = getattr(track, "language_code", None) or getattr(track, "language_name", None) or "und"
+        return f"{self._default_marker(getattr(track, 'is_default', False))}{language}"
+
+    def _table_track_detail(self, track, is_audio: bool) -> str:
+        if is_audio:
+            base = getattr(track, "branding", None) or getattr(track, "codec_display", None) or getattr(track, "codec", None) or "-"
+            if getattr(track, "channel_label", None):
+                base = f"{base}/{track.channel_label}"
+            return base
+        base = getattr(track, "codec_display", None) or getattr(track, "codec", None) or "-"
+        if getattr(track, "extra_info", None):
+            return f"{base} {track.extra_info}"
+        return base
+
+    def _table_requirement_cell(self, check) -> RenderablePart:
         if not check.required:
-            return None
+            return "-"
         needed = "/".join(check.required)
         if not check.missing:
             symbol = "✓" if self.use_unicode else "ok"
-            return self._styled(f"{label}:{needed} {symbol}", "green")
+            return self._styled(f"{needed} {symbol}", "green")
         missing = "/".join(check.missing)
         symbol = "✖" if self.use_unicode else "x"
-        return self._styled(f"{label}:{needed} {symbol} {missing}", "bold red")
+        return self._styled(f"{needed} {symbol} {missing}", "bold red")
 
     def _table_issues_cell(self, result: InspectionResult) -> Text:
         parts = self._issues_parts(result.issues, compact=True)

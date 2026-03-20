@@ -205,11 +205,13 @@ class CliTests(unittest.TestCase):
         rendered = buffer.getvalue()
         self.assertEqual(exit_code, 0)
         self.assertIn("Title", rendered)
-        self.assertIn("Video", rendered)
-        self.assertIn("Audio", rendered)
-        self.assertIn("Subs", rendered)
-        self.assertIn("Req", rendered)
-        self.assertIn("Season 01/Movie.mkv", rendered)
+        self.assertIn("Dur", rendered)
+        self.assertIn("VCodec", rendered)
+        self.assertIn("A1", rendered)
+        self.assertIn("S1", rendered)
+        self.assertIn("Req A", rendered)
+        self.assertIn("Req S", rendered)
+        self.assertNotIn("Season 01/Movie.mkv", rendered)
 
 
 if __name__ == "__main__":

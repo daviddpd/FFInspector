@@ -30,7 +30,7 @@ python3 -m ffinspector /path/to/show --format json
 - `terse` is the default terminal view and aims for a 3-4 line per-file summary.
 - `brief` keeps the same sections but compresses each block into a single monospace-friendly line.
 - `detail` is the original expanded block view for full per-track details.
-- `table` renders one Rich table row per file so you can compare episodes at a glance.
+- `table` renders each file as a two-row Rich table block with separate columns for video, track, requirement, and issue fields.
 - `json` emits structured machine-readable output.
 - `brief` and `terse` cap audio/subtitle previews to two key items, then append an `X more...` tail when extra tracks exist.
 - Displayed media paths are rendered relative to the target path you inspect.
