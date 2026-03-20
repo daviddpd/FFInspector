@@ -14,6 +14,7 @@
 ## Usage
 
 ```bash
+pip install -r requirements.txt
 python3 -m ffinspector /path/to/media
 python3 -m ffinspector /path/to/show --require-audio-language eng --require-subtitle-language eng
 python3 -m ffinspector /path/to/show --config ffinspector.example.yaml
@@ -68,5 +69,6 @@ comparison:
 ## Notes
 
 - `ffprobe` must be installed and available on `PATH`, or configured explicitly with `ffprobe_path`.
+- Terminal output is rendered with [Rich](https://github.com/Textualize/rich).
 - In environments where `ffprobe` is missing, the tool still reports the file and emits a probe error instead of crashing.
 - The repo includes a stdlib `unittest` suite that mocks `ffprobe`, so the logic can be verified without FFmpeg on the machine.
