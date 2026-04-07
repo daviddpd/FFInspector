@@ -41,7 +41,7 @@ python3 -m ffinspector arr-date-sync radarr /path/to/radarr.db --map-root /z/med
 
 ## Configuration
 
-The CLI accepts YAML config via `--config`. If `PyYAML` is installed it will use full YAML parsing. Without it, the bundled fallback parser supports the simple nested mapping/list structure shown below.
+The CLI accepts YAML config via `--config`. `PyYAML` is included in `requirements.txt` for full YAML parsing. Without it, the bundled fallback parser supports the simple nested mapping/list structure shown below.
 
 ```yaml
 ffprobe_path: ffprobe
