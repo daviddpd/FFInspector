@@ -26,6 +26,7 @@ python3 -m ffinspector /path/to/show --format json
 python3 -m ffinspector arr-date-sync radarr /path/to/radarr.db
 python3 -m ffinspector arr-date-sync sonarr /path/to/sonarr.db --mode oldest-media
 python3 -m ffinspector arr-date-sync radarr /path/to/radarr.db --mode oldest-any --apply
+python3 -m ffinspector arr-date-sync radarr /path/to/radarr.db --map-root /z/media=/Volumes/media
 ```
 
 ## Report Formats
@@ -81,3 +82,4 @@ comparison:
 - The date source precedence for `arr-date-sync` is always `birth -> modified -> access`.
 - `first-media` uses the movie file for Radarr and prefers `S01E01` for Sonarr when present, otherwise it falls back to the numerically first episode file on disk.
 - `oldest-media` scans only video files using the configured media extensions, while `oldest-any` scans every file type in the movie or series folder tree.
+- `--map-root SOURCE=TARGET` rewrites database path prefixes before probing the filesystem, which is useful when testing copied Radarr or Sonarr databases on a different machine or mount point.

@@ -7,7 +7,7 @@ from pathlib import Path
 
 from . import __version__
 from .analysis import inspect_media_file
-from .arrsync import ArrSyncError, run_added_date_sync
+from .arrsync import ArrSyncError, parse_root_maps, run_added_date_sync
 from .config import AppConfig, ConfigError, load_config
 from .discovery import discover_media_paths
 from .probe import FFProbeRunner
@@ -75,6 +75,12 @@ def build_arr_date_sync_parser() -> argparse.ArgumentParser:
         "--apply",
         action="store_true",
         help="Write changes to the database. Without this flag the command performs a dry run.",
+    )
+    parser.add_argument(
+        "--map-root",
+        action="append",
+        default=[],
+        help="Rewrite a database path prefix as SOURCE=TARGET. May be passed multiple times.",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     return parser
@@ -145,14 +151,15 @@ def _main_arr_date_sync(argv: list[str]) -> int:
             for item in args.extensions.split(",")
             if item.strip()
         ]
-
     try:
+        root_maps = parse_root_maps(args.map_root)
         return run_added_date_sync(
             Path(args.database),
             args.app,
             args.mode,
             args.apply,
             config.scan.extensions,
+            root_maps,
             sys.stdout,
         )
     except (ArrSyncError, OSError, sqlite3.DatabaseError) as exc:

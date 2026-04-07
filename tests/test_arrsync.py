@@ -224,6 +224,131 @@ class ArrDateSyncTests(unittest.TestCase):
             connection.close()
             self.assertEqual(added, "2010-01-02 03:04:05Z")
 
+    def test_radarr_map_root_rewrites_database_media_paths(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            db_path = root / "radarr.db"
+            mapped_root = root / "Volumes" / "media"
+            movie_dir = mapped_root / "Movies" / "Example Movie (1999)"
+            movie_dir.mkdir(parents=True)
+            movie_path = movie_dir / "Example.Movie.1999.mkv"
+            movie_path.write_text("", encoding="utf-8")
+
+            _create_basic_radarr_db(
+                db_path,
+                Path("/z/media/Movies/Example Movie (1999)"),
+                movie_path,
+                title="Example Movie",
+            )
+
+            buffer = io.StringIO()
+            timestamp_map = {
+                movie_path: _resolved_timestamp("2020-01-02T03:04:05+00:00", "modified"),
+            }
+            with patch(
+                "ffinspector.arrsync._effective_timestamp_for_path",
+                side_effect=lambda path: timestamp_map.get(path),
+            ):
+                with redirect_stdout(buffer):
+                    exit_code = main(
+                        [
+                            "arr-date-sync",
+                            "radarr",
+                            str(db_path),
+                            "--apply",
+                            "--map-root",
+                            f"/z/media={mapped_root}",
+                        ]
+                    )
+
+            self.assertEqual(exit_code, 0)
+            rendered = buffer.getvalue()
+            self.assertIn(f"map-root: /z/media -> {mapped_root}", rendered)
+            self.assertIn(str(movie_path), rendered)
+
+            connection = sqlite3.connect(db_path)
+            added = connection.execute("SELECT Added FROM Movies WHERE Id = 1").fetchone()[0]
+            connection.close()
+            self.assertEqual(added, "2020-01-02 03:04:05Z")
+
+    def test_sonarr_map_root_rewrites_series_media_paths(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            db_path = root / "sonarr.db"
+            mapped_root = root / "Volumes" / "media"
+            series_dir = mapped_root / "TV" / "Example Show"
+            (series_dir / "Season 01").mkdir(parents=True)
+            episode_path = series_dir / "Season 01" / "Example.Show.S01E01.mkv"
+            episode_path.write_text("", encoding="utf-8")
+
+            connection = sqlite3.connect(db_path)
+            connection.executescript(
+                """
+                CREATE TABLE Series (
+                    Id INTEGER PRIMARY KEY,
+                    Title TEXT NOT NULL,
+                    Path TEXT NOT NULL,
+                    Added TEXT
+                );
+                CREATE TABLE EpisodeFiles (
+                    Id INTEGER PRIMARY KEY,
+                    SeriesId INTEGER NOT NULL,
+                    RelativePath TEXT,
+                    OriginalFilePath TEXT
+                );
+                CREATE TABLE Episodes (
+                    Id INTEGER PRIMARY KEY,
+                    SeriesId INTEGER NOT NULL,
+                    EpisodeFileId INTEGER NOT NULL,
+                    SeasonNumber INTEGER NOT NULL,
+                    EpisodeNumber INTEGER NOT NULL
+                );
+                """
+            )
+            connection.execute(
+                "INSERT INTO Series (Id, Title, Path, Added) VALUES (1, 'Example Show', ?, '2024-07-01 00:00:00Z')",
+                ("/z/media/TV/Example Show",),
+            )
+            connection.execute(
+                "INSERT INTO EpisodeFiles (Id, SeriesId, RelativePath) VALUES (12, 1, ?)",
+                ("Season 01/Example.Show.S01E01.mkv",),
+            )
+            connection.execute(
+                "INSERT INTO Episodes (Id, SeriesId, EpisodeFileId, SeasonNumber, EpisodeNumber) VALUES (2, 1, 12, 1, 1)"
+            )
+            connection.commit()
+            connection.close()
+
+            buffer = io.StringIO()
+            timestamp_map = {
+                episode_path: _resolved_timestamp("2015-01-01T00:00:00+00:00", "modified"),
+            }
+            with patch(
+                "ffinspector.arrsync._effective_timestamp_for_path",
+                side_effect=lambda path: timestamp_map.get(path),
+            ):
+                with redirect_stdout(buffer):
+                    exit_code = main(
+                        [
+                            "arr-date-sync",
+                            "sonarr",
+                            str(db_path),
+                            "--apply",
+                            "--map-root",
+                            f"/z/media={mapped_root}",
+                        ]
+                    )
+
+            self.assertEqual(exit_code, 0)
+            rendered = buffer.getvalue()
+            self.assertIn(f"map-root: /z/media -> {mapped_root}", rendered)
+            self.assertIn(str(episode_path), rendered)
+
+            connection = sqlite3.connect(db_path)
+            added = connection.execute("SELECT Added FROM Series WHERE Id = 1").fetchone()[0]
+            connection.close()
+            self.assertEqual(added, "2015-01-01 00:00:00Z")
+
 
 def _create_basic_radarr_db(db_path: Path, movie_dir: Path, movie_path: Path, title: str) -> None:
     connection = sqlite3.connect(db_path)
