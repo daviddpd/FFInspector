@@ -159,7 +159,7 @@ class _BaseArrAdapter:
 
     def _load_added_sample(self) -> object:
         row = self.connection.execute(
-            f'SELECT Added FROM "{self.table_name}" WHERE Added IS NOT NULL AND Added != "" LIMIT 1'
+            f'SELECT Added FROM "{self.table_name}" WHERE Added IS NOT NULL AND Added != \'\' LIMIT 1'
         ).fetchone()
         return row[0] if row else None
 
