@@ -197,12 +197,18 @@ class _RadarrAdapter(_BaseArrAdapter):
             joins.append("LEFT JOIN MovieMetadata mm ON mm.Id = m.MovieMetadataId")
             title_expr = "mm.Title"
 
-        media_path_expr = "NULL"
-        if "Path" in self._movie_file_columns:
-            if "MovieFileId" in self._movie_columns and "Id" in self._movie_file_columns:
-                media_path_expr = "(SELECT Path FROM MovieFiles mf WHERE mf.Id = m.MovieFileId LIMIT 1)"
-            elif "MovieId" in self._movie_file_columns:
-                media_path_expr = "(SELECT Path FROM MovieFiles mf WHERE mf.MovieId = m.Id ORDER BY mf.Id LIMIT 1)"
+        media_relative_expr = "NULL"
+        media_original_expr = "NULL"
+        if "MovieFileId" in self._movie_columns and "Id" in self._movie_file_columns:
+            if "RelativePath" in self._movie_file_columns:
+                media_relative_expr = "(SELECT RelativePath FROM MovieFiles mf WHERE mf.Id = m.MovieFileId LIMIT 1)"
+            if "OriginalFilePath" in self._movie_file_columns:
+                media_original_expr = "(SELECT OriginalFilePath FROM MovieFiles mf WHERE mf.Id = m.MovieFileId LIMIT 1)"
+        elif "MovieId" in self._movie_file_columns:
+            if "RelativePath" in self._movie_file_columns:
+                media_relative_expr = "(SELECT RelativePath FROM MovieFiles mf WHERE mf.MovieId = m.Id ORDER BY mf.Id LIMIT 1)"
+            if "OriginalFilePath" in self._movie_file_columns:
+                media_original_expr = "(SELECT OriginalFilePath FROM MovieFiles mf WHERE mf.MovieId = m.Id ORDER BY mf.Id LIMIT 1)"
 
         sql = "\n".join(
             [
@@ -211,7 +217,8 @@ class _RadarrAdapter(_BaseArrAdapter):
                 f"  COALESCE({title_expr}, m.Path, 'Movie ' || m.Id) AS title,",
                 "  m.Path AS folder_path,",
                 "  m.Added AS current_added,",
-                f"  {media_path_expr} AS media_path",
+                f"  {media_relative_expr} AS media_relative_path,",
+                f"  {media_original_expr} AS media_original_path",
                 "FROM Movies m",
                 *joins,
                 f"ORDER BY lower(COALESCE({title_expr}, m.Path, ''))",
@@ -221,13 +228,17 @@ class _RadarrAdapter(_BaseArrAdapter):
 
     def _select_timestamp(self, row: sqlite3.Row, mode: str) -> FileTimestamp | None:
         folder_path = row["folder_path"]
-        media_path = row["media_path"]
+        media_path = _resolve_arr_file_path(
+            folder_path,
+            row["media_relative_path"],
+            row["media_original_path"],
+        )
         if mode == "first-media":
             if media_path:
-                resolved = _effective_timestamp_for_path(Path(media_path))
+                resolved = _effective_timestamp_for_path(media_path)
                 if resolved is not None:
                     return FileTimestamp(
-                        path=Path(media_path),
+                        path=media_path,
                         timestamp=resolved.timestamp,
                         basis=resolved.basis,
                         label="movie file",
@@ -247,9 +258,10 @@ class _SonarrAdapter(_BaseArrAdapter):
     def __init__(self, connection: sqlite3.Connection, media_extensions: Sequence[str]) -> None:
         _require_columns(connection, "Series", {"Id", "Path", "Added"})
         _require_columns(connection, "Episodes", {"SeriesId", "EpisodeFileId", "SeasonNumber", "EpisodeNumber"})
-        _require_columns(connection, "EpisodeFiles", {"Id", "Path"})
+        _require_columns(connection, "EpisodeFiles", {"Id"})
         super().__init__(connection, media_extensions)
         self._series_columns = _table_columns(connection, "Series")
+        self._episode_file_columns = _table_columns(connection, "EpisodeFiles")
 
     def _load_rows(self) -> list[sqlite3.Row]:
         title_expr = "s.Title" if "Title" in self._series_columns else "s.Path"
@@ -269,10 +281,16 @@ class _SonarrAdapter(_BaseArrAdapter):
     def _select_timestamp(self, row: sqlite3.Row, mode: str) -> FileTimestamp | None:
         folder_path = row["folder_path"]
         if mode == "first-media":
+            relative_expr = "ef.RelativePath" if "RelativePath" in self._episode_file_columns else "NULL"
+            original_expr = "ef.OriginalFilePath" if "OriginalFilePath" in self._episode_file_columns else "NULL"
             episode_row = self.connection.execute(
                 "\n".join(
                     [
-                        "SELECT ef.Path AS media_path, e.SeasonNumber AS season_number, e.EpisodeNumber AS episode_number",
+                        "SELECT",
+                        f"  {relative_expr} AS media_relative_path,",
+                        f"  {original_expr} AS media_original_path,",
+                        "  e.SeasonNumber AS season_number,",
+                        "  e.EpisodeNumber AS episode_number",
                         "FROM Episodes e",
                         "JOIN EpisodeFiles ef ON ef.Id = e.EpisodeFileId",
                         "WHERE e.SeriesId = ? AND e.EpisodeFileId > 0",
@@ -285,9 +303,13 @@ class _SonarrAdapter(_BaseArrAdapter):
                 ),
                 (row["item_id"],),
             ).fetchone()
-            if episode_row and episode_row["media_path"]:
-                media_path = Path(episode_row["media_path"])
-                resolved = _effective_timestamp_for_path(media_path)
+            if episode_row:
+                media_path = _resolve_arr_file_path(
+                    folder_path,
+                    episode_row["media_relative_path"],
+                    episode_row["media_original_path"],
+                )
+                resolved = _effective_timestamp_for_path(media_path) if media_path is not None else None
                 if resolved is not None:
                     label = (
                         f"first episode S{episode_row['season_number']:02d}E{episode_row['episode_number']:02d}"
@@ -343,6 +365,18 @@ def _effective_timestamp_for_path(path: Path) -> _ResolvedTimestamp | None:
         return _ResolvedTimestamp(datetime.fromtimestamp(stat_result.st_mtime, tz=timezone.utc), "modified")
     if stat_result.st_atime is not None:
         return _ResolvedTimestamp(datetime.fromtimestamp(stat_result.st_atime, tz=timezone.utc), "access")
+    return None
+
+
+def _resolve_arr_file_path(folder_path: str | None, relative_path: str | None, original_path: str | None) -> Path | None:
+    if original_path:
+        original = Path(original_path)
+        if original.exists():
+            return original
+    if folder_path and relative_path:
+        return Path(folder_path) / Path(relative_path)
+    if original_path:
+        return Path(original_path)
     return None
 
 

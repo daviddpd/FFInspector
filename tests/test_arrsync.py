@@ -35,7 +35,8 @@ class ArrDateSyncTests(unittest.TestCase):
                 CREATE TABLE MovieFiles (
                     Id INTEGER PRIMARY KEY,
                     MovieId INTEGER,
-                    Path TEXT NOT NULL
+                    RelativePath TEXT,
+                    OriginalFilePath TEXT
                 );
                 CREATE TABLE MovieMetadata (
                     Id INTEGER PRIMARY KEY,
@@ -44,7 +45,10 @@ class ArrDateSyncTests(unittest.TestCase):
                 """,
             )
             connection.execute("INSERT INTO MovieMetadata (Id, Title) VALUES (1, 'Example Movie')")
-            connection.execute("INSERT INTO MovieFiles (Id, MovieId, Path) VALUES (7, 1, ?)", (str(movie_path),))
+            connection.execute(
+                "INSERT INTO MovieFiles (Id, MovieId, RelativePath) VALUES (7, 1, ?)",
+                (movie_path.name,),
+            )
             connection.execute(
                 "INSERT INTO Movies (Id, Path, Added, MovieFileId, MovieMetadataId) VALUES (1, ?, '2025-05-01 00:00:00Z', 7, 1)",
                 (str(movie_dir),),
@@ -100,7 +104,9 @@ class ArrDateSyncTests(unittest.TestCase):
                 );
                 CREATE TABLE EpisodeFiles (
                     Id INTEGER PRIMARY KEY,
-                    Path TEXT NOT NULL
+                    SeriesId INTEGER NOT NULL,
+                    RelativePath TEXT,
+                    OriginalFilePath TEXT
                 );
                 CREATE TABLE Episodes (
                     Id INTEGER PRIMARY KEY,
@@ -115,8 +121,14 @@ class ArrDateSyncTests(unittest.TestCase):
                 "INSERT INTO Series (Id, Title, Path, Added) VALUES (1, 'Example Show', ?, '2024-07-01 00:00:00Z')",
                 (str(series_dir),),
             )
-            connection.execute("INSERT INTO EpisodeFiles (Id, Path) VALUES (11, ?)", (str(special_path),))
-            connection.execute("INSERT INTO EpisodeFiles (Id, Path) VALUES (12, ?)", (str(episode_path),))
+            connection.execute(
+                "INSERT INTO EpisodeFiles (Id, SeriesId, RelativePath) VALUES (11, 1, ?)",
+                ("Season 00/Example.Show.S00E01.mkv",),
+            )
+            connection.execute(
+                "INSERT INTO EpisodeFiles (Id, SeriesId, RelativePath) VALUES (12, 1, ?)",
+                ("Season 01/Example.Show.S01E01.mkv",),
+            )
             connection.execute(
                 "INSERT INTO Episodes (Id, SeriesId, EpisodeFileId, SeasonNumber, EpisodeNumber) VALUES (1, 1, 11, 0, 1)"
             )
@@ -227,7 +239,8 @@ def _create_basic_radarr_db(db_path: Path, movie_dir: Path, movie_path: Path, ti
         CREATE TABLE MovieFiles (
             Id INTEGER PRIMARY KEY,
             MovieId INTEGER,
-            Path TEXT NOT NULL
+            RelativePath TEXT,
+            OriginalFilePath TEXT
         );
         CREATE TABLE MovieMetadata (
             Id INTEGER PRIMARY KEY,
@@ -236,7 +249,10 @@ def _create_basic_radarr_db(db_path: Path, movie_dir: Path, movie_path: Path, ti
         """
     )
     connection.execute("INSERT INTO MovieMetadata (Id, Title) VALUES (1, ?)", (title,))
-    connection.execute("INSERT INTO MovieFiles (Id, MovieId, Path) VALUES (7, 1, ?)", (str(movie_path),))
+    connection.execute(
+        "INSERT INTO MovieFiles (Id, MovieId, RelativePath) VALUES (7, 1, ?)",
+        (movie_path.name,),
+    )
     connection.execute(
         "INSERT INTO Movies (Id, Path, Added, MovieFileId, MovieMetadataId) VALUES (1, ?, '2025-05-01 00:00:00Z', 7, 1)",
         (str(movie_dir),),
