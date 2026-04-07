@@ -6,9 +6,11 @@ import unittest
 from contextlib import redirect_stdout
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
+from ffinspector.arrsync import _effective_timestamp_for_path
 from ffinspector.cli import main
 
 
@@ -348,6 +350,24 @@ class ArrDateSyncTests(unittest.TestCase):
             added = connection.execute("SELECT Added FROM Series WHERE Id = 1").fetchone()[0]
             connection.close()
             self.assertEqual(added, "2015-01-01 00:00:00Z")
+
+    def test_invalid_birthtime_falls_back_to_modified_time(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            sample = Path(temp_dir) / "sample.mkv"
+            sample.write_text("", encoding="utf-8")
+
+            stat_result = SimpleNamespace(
+                st_birthtime=10**30,
+                st_mtime=1577934245.0,
+                st_atime=1577934300.0,
+            )
+            with patch.object(type(sample), "stat", return_value=stat_result):
+                resolved = _effective_timestamp_for_path(sample)
+
+        self.assertIsNotNone(resolved)
+        assert resolved is not None
+        self.assertEqual(resolved.basis, "modified")
+        self.assertEqual(resolved.timestamp, datetime(2020, 1, 2, 3, 4, 5, tzinfo=timezone.utc))
 
 
 def _create_basic_radarr_db(db_path: Path, movie_dir: Path, movie_path: Path, title: str) -> None:

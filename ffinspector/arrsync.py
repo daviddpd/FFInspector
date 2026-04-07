@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -405,14 +406,31 @@ def _effective_timestamp_for_path(path: Path) -> _ResolvedTimestamp | None:
     except OSError:
         return None
 
-    birth = getattr(stat_result, "st_birthtime", None)
+    birth = _safe_datetime_from_timestamp(getattr(stat_result, "st_birthtime", None))
     if birth is not None:
-        return _ResolvedTimestamp(datetime.fromtimestamp(birth, tz=timezone.utc), "birth")
-    if stat_result.st_mtime is not None:
-        return _ResolvedTimestamp(datetime.fromtimestamp(stat_result.st_mtime, tz=timezone.utc), "modified")
-    if stat_result.st_atime is not None:
-        return _ResolvedTimestamp(datetime.fromtimestamp(stat_result.st_atime, tz=timezone.utc), "access")
+        return _ResolvedTimestamp(birth, "birth")
+
+    modified = _safe_datetime_from_timestamp(getattr(stat_result, "st_mtime", None))
+    if modified is not None:
+        return _ResolvedTimestamp(modified, "modified")
+
+    accessed = _safe_datetime_from_timestamp(getattr(stat_result, "st_atime", None))
+    if accessed is not None:
+        return _ResolvedTimestamp(accessed, "access")
     return None
+
+
+def _safe_datetime_from_timestamp(value: object) -> datetime | None:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(numeric):
+        return None
+    try:
+        return datetime.fromtimestamp(numeric, tz=timezone.utc)
+    except (OverflowError, OSError, ValueError):
+        return None
 
 
 def _normalize_root_source(value: str) -> str:
