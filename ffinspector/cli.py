@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import sqlite3
 import sys
 from pathlib import Path
 
 from . import __version__
 from .analysis import inspect_media_file
+from .arrsync import ArrSyncError, run_added_date_sync
 from .config import AppConfig, ConfigError, load_config
 from .discovery import discover_media_paths
 from .probe import FFProbeRunner
@@ -51,10 +53,43 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def build_arr_date_sync_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="ffinspect arr-date-sync",
+        description="Adjust Radarr or Sonarr Added dates using media file timestamps.",
+    )
+    parser.add_argument("app", choices=["radarr", "sonarr"], help="Target application database type.")
+    parser.add_argument("database", help="Path to the Radarr or Sonarr SQLite database.")
+    parser.add_argument("-c", "--config", help="Optional YAML config file for media extensions.")
+    parser.add_argument(
+        "--mode",
+        choices=["first-media", "oldest-media", "oldest-any"],
+        default="first-media",
+        help="Selection strategy for the filesystem timestamp source.",
+    )
+    parser.add_argument(
+        "--extensions",
+        help="Comma-separated video extensions for media-only modes.",
+    )
+    parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="Write changes to the database. Without this flag the command performs a dry run.",
+    )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    return parser
+
+
 def main(argv: list[str] | None = None) -> int:
+    command_args = list(argv) if argv is not None else sys.argv[1:]
+    if command_args and command_args[0] == "arr-date-sync":
+        return _main_arr_date_sync(command_args[1:])
+    return _main_inspect(command_args)
+
+
+def _main_inspect(argv: list[str]) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-
     try:
         config = load_config(Path(args.config)) if args.config else AppConfig()
     except (OSError, ConfigError) as exc:
@@ -92,6 +127,37 @@ def main(argv: list[str] | None = None) -> int:
     )
     print(renderer.render(results, config))
     return 0
+
+
+def _main_arr_date_sync(argv: list[str]) -> int:
+    parser = build_arr_date_sync_parser()
+    args = parser.parse_args(argv)
+
+    try:
+        config = load_config(Path(args.config)) if args.config else AppConfig()
+    except (OSError, ConfigError) as exc:
+        print(f"Configuration error: {exc}", file=sys.stderr)
+        return 2
+
+    if args.extensions:
+        config.scan.extensions = [
+            item.strip().lower() if item.strip().startswith(".") else f".{item.strip().lower()}"
+            for item in args.extensions.split(",")
+            if item.strip()
+        ]
+
+    try:
+        return run_added_date_sync(
+            Path(args.database),
+            args.app,
+            args.mode,
+            args.apply,
+            config.scan.extensions,
+            sys.stdout,
+        )
+    except (ArrSyncError, OSError, sqlite3.DatabaseError) as exc:
+        print(f"Date sync error: {exc}", file=sys.stderr)
+        return 2
 
 
 def _apply_cli_overrides(config: AppConfig, args) -> None:
